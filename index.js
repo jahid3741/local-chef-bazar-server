@@ -30,6 +30,9 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+function isValidObjectId(id) {
+  return ObjectId.isValid(id);
+}
 
 // verify token middleware
 function verifyToken(req, res, next) {
@@ -323,12 +326,20 @@ async function run() {
     });
 
     // get single meal
-    app.get("/meals/:id", async (req, res) => {
+    app.get("/meals/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
+
+      if (!isValidObjectId(id)) {
+        return res.status(400).send({ message: "Invalid meal id" });
+      }
 
       const result = await mealsCollection.findOne({
         _id: new ObjectId(id),
       });
+
+      if (!result) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
 
       res.send(result);
     });
@@ -336,13 +347,38 @@ async function run() {
     // update meal
     app.patch("/meals/:id", verifyToken, verifyChef, async (req, res) => {
       const id = req.params.id;
-
       const updatedData = req.body;
+
+      if (!isValidObjectId(id)) {
+        return res.status(400).send({ message: "Invalid meal id" });
+      }
+
+      const meal = await mealsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!meal) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      if (meal.userEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      delete updatedData._id;
+      delete updatedData.chefId;
+      delete updatedData.userEmail;
+      delete updatedData.createdAt;
 
       const result = await mealsCollection.updateOne(
         { _id: new ObjectId(id) },
         {
-          $set: updatedData,
+          $set: {
+            ...updatedData,
+            price: Number(updatedData.price),
+            rating: Number(updatedData.rating),
+            updatedAt: new Date().toISOString(),
+          },
         },
       );
 
@@ -352,6 +388,22 @@ async function run() {
     // delete meal
     app.delete("/meals/:id", verifyToken, verifyChef, async (req, res) => {
       const id = req.params.id;
+
+      if (!isValidObjectId(id)) {
+        return res.status(400).send({ message: "Invalid meal id" });
+      }
+
+      const meal = await mealsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!meal) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      if (meal.userEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
 
       const result = await mealsCollection.deleteOne({
         _id: new ObjectId(id),
@@ -494,6 +546,7 @@ async function run() {
         message: "Server and database are ready",
       });
     });
+
     // add review
     app.post("/reviews", verifyToken, async (req, res) => {
       const review = req.body;
@@ -910,6 +963,13 @@ async function run() {
         .toArray();
 
       res.send(result);
+    });
+
+    // 404 route - always last
+    app.use((req, res) => {
+      res.status(404).send({
+        message: "Route not found",
+      });
     });
   } finally {
   }
