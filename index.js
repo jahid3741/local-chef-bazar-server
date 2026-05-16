@@ -890,6 +890,27 @@ async function run() {
         ordersDelivered,
       });
     });
+    // home daily meals
+    app.get("/daily-meals", async (req, res) => {
+      const result = await mealsCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+
+      res.send(result);
+    });
+
+    // home customer reviews
+    app.get("/home-reviews", async (req, res) => {
+      const result = await reviewsCollection
+        .find()
+        .sort({ date: -1 })
+        .limit(6)
+        .toArray();
+
+      res.send(result);
+    });
   } finally {
   }
 }
