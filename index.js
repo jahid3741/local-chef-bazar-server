@@ -96,7 +96,7 @@ async function run() {
         })
         .send({ success: true });
     });
-        app.post("/requests", verifyToken, async (req, res) => {
+    app.post("/requests", verifyToken, async (req, res) => {
       const request = req.body;
 
       if (req.user.email !== request.userEmail) {
@@ -134,50 +134,63 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/requests/:id/approve", verifyToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const request = await requestsCollection.findOne({ _id: new ObjectId(id) });
+    app.patch(
+      "/requests/:id/approve",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const request = await requestsCollection.findOne({
+          _id: new ObjectId(id),
+        });
 
-      if (!request) {
-        return res.status(404).send({ message: "Request not found" });
-      }
+        if (!request) {
+          return res.status(404).send({ message: "Request not found" });
+        }
 
-      if (request.requestStatus !== "pending") {
-        return res.status(400).send({ message: "Request is already handled" });
-      }
+        if (request.requestStatus !== "pending") {
+          return res
+            .status(400)
+            .send({ message: "Request is already handled" });
+        }
 
-      const updateUser = {
-        role: request.requestType,
-      };
+        const updateUser = {
+          role: request.requestType,
+        };
 
-      if (request.requestType === "chef") {
-        updateUser.chefId = `chef-${Math.floor(1000 + Math.random() * 9000)}`;
-      }
+        if (request.requestType === "chef") {
+          updateUser.chefId = `chef-${Math.floor(1000 + Math.random() * 9000)}`;
+        }
 
-      const userResult = await usersCollection.updateOne(
-        { email: request.userEmail },
-        { $set: updateUser },
-      );
+        const userResult = await usersCollection.updateOne(
+          { email: request.userEmail },
+          { $set: updateUser },
+        );
 
-      const requestResult = await requestsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { requestStatus: "approved" } },
-      );
+        const requestResult = await requestsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { requestStatus: "approved" } },
+        );
 
-      res.send({ userResult, requestResult });
-    });
+        res.send({ userResult, requestResult });
+      },
+    );
 
-    app.patch("/requests/:id/reject", verifyToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    app.patch(
+      "/requests/:id/reject",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
 
-      const result = await requestsCollection.updateOne(
-        { _id: new ObjectId(id), requestStatus: "pending" },
-        { $set: { requestStatus: "rejected" } },
-      );
+        const result = await requestsCollection.updateOne(
+          { _id: new ObjectId(id), requestStatus: "pending" },
+          { $set: { requestStatus: "rejected" } },
+        );
 
-      res.send(result);
-    });
-
+        res.send(result);
+      },
+    );
 
     app.put("/users/:email", async (req, res) => {
       const email = req.params.email;
@@ -205,6 +218,45 @@ async function run() {
       );
       res.send(result);
     });
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await usersCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.patch(
+      "/users/:email/fraud",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+
+        const targetUser = await usersCollection.findOne({ email });
+
+        if (!targetUser) {
+          return res.status(404).send({ message: "User not found" });
+        }
+
+        if (targetUser.role === "admin") {
+          return res
+            .status(400)
+            .send({ message: "Admin cannot be marked as fraud" });
+        }
+
+        if (targetUser.status === "fraud") {
+          return res.status(400).send({ message: "User is already fraud" });
+        }
+
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: { status: "fraud" } },
+        );
+
+        res.send(result);
+      },
+    );
 
     app.get("/users/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -245,7 +297,6 @@ async function run() {
     });
 
     console.log("LocalChefBazaar database connected");
-    
   } finally {
   }
 }
