@@ -637,6 +637,28 @@ async function run() {
 
       res.send(result);
     });
+    // delete favorite
+    app.delete("/favorites/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+
+      const favorite = await favoritesCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!favorite) {
+        return res.status(404).send({ message: "Favorite not found" });
+      }
+
+      if (favorite.userEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await favoritesCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      res.send(result);
+    });
   } finally {
   }
 }
