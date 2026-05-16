@@ -519,20 +519,50 @@ async function run() {
       res.send(result);
     });
     // get my reviews
-app.get("/reviews/user/:email", verifyToken, async (req, res) => {
-  const email = req.params.email;
+    app.get("/reviews/user/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
 
-  if (req.user.email !== email) {
-    return res.status(403).send({ message: "Forbidden access" });
-  }
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
 
-  const result = await reviewsCollection
-    .find({ reviewerEmail: email })
-    .sort({ date: -1 })
-    .toArray();
+      const result = await reviewsCollection
+        .find({ reviewerEmail: email })
+        .sort({ date: -1 })
+        .toArray();
 
-  res.send(result);
-});
+      res.send(result);
+    });
+    // update review
+    app.patch("/reviews/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const updatedReview = req.body;
+
+      const review = await reviewsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!review) {
+        return res.status(404).send({ message: "Review not found" });
+      }
+
+      if (review.reviewerEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await reviewsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            rating: Number(updatedReview.rating),
+            comment: updatedReview.comment,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      );
+
+      res.send(result);
+    });
   } finally {
   }
 }
