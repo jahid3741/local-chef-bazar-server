@@ -507,6 +507,17 @@ async function run() {
       const result = await reviewsCollection.insertOne(newReview);
       res.send(result);
     });
+    // get reviews by meal
+    app.get("/reviews/meal/:foodId", async (req, res) => {
+      const foodId = req.params.foodId;
+
+      const result = await reviewsCollection
+        .find({ foodId })
+        .sort({ date: -1 })
+        .toArray();
+
+      res.send(result);
+    });
   } finally {
   }
 }
