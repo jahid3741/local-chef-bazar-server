@@ -751,6 +751,65 @@ async function run() {
         res.send(result);
       },
     );
+    // update order status by chef
+    app.patch(
+      "/orders/:id/status",
+      verifyToken,
+      verifyChef,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body;
+
+        const allowedStatuses = ["cancelled", "accepted", "delivered"];
+
+        if (!allowedStatuses.includes(status)) {
+          return res.status(400).send({ message: "Invalid status" });
+        }
+
+        const order = await ordersCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!order) {
+          return res.status(404).send({ message: "Order not found" });
+        }
+
+        if (order.chefId !== req.dbUser.chefId) {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+
+        if (
+          order.orderStatus === "cancelled" ||
+          order.orderStatus === "delivered"
+        ) {
+          return res.status(400).send({ message: "Order is already closed" });
+        }
+
+        if (status === "delivered" && order.orderStatus !== "accepted") {
+          return res
+            .status(400)
+            .send({ message: "Only accepted orders can be delivered" });
+        }
+
+        if (
+          (status === "accepted" || status === "cancelled") &&
+          order.orderStatus !== "pending"
+        ) {
+          return res
+            .status(400)
+            .send({
+              message: "Only pending orders can be accepted or cancelled",
+            });
+        }
+
+        const result = await ordersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { orderStatus: status } },
+        );
+
+        res.send(result);
+      },
+    );
   } finally {
   }
 }
