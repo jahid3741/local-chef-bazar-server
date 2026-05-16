@@ -518,6 +518,21 @@ async function run() {
 
       res.send(result);
     });
+    // get my reviews
+app.get("/reviews/user/:email", verifyToken, async (req, res) => {
+  const email = req.params.email;
+
+  if (req.user.email !== email) {
+    return res.status(403).send({ message: "Forbidden access" });
+  }
+
+  const result = await reviewsCollection
+    .find({ reviewerEmail: email })
+    .sort({ date: -1 })
+    .toArray();
+
+  res.send(result);
+});
   } finally {
   }
 }
