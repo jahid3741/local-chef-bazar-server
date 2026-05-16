@@ -2,7 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
 require("dotenv").config();
 
 const app = express();
@@ -95,6 +96,88 @@ async function run() {
         })
         .send({ success: true });
     });
+        app.post("/requests", verifyToken, async (req, res) => {
+      const request = req.body;
+
+      if (req.user.email !== request.userEmail) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const existingRequest = await requestsCollection.findOne({
+        userEmail: request.userEmail,
+        requestType: request.requestType,
+        requestStatus: "pending",
+      });
+
+      if (existingRequest) {
+        return res.status(409).send({ message: "Request already pending" });
+      }
+
+      const newRequest = {
+        userName: request.userName,
+        userEmail: request.userEmail,
+        requestType: request.requestType,
+        requestStatus: "pending",
+        requestTime: new Date().toISOString(),
+      };
+
+      const result = await requestsCollection.insertOne(newRequest);
+      res.send(result);
+    });
+
+    app.get("/requests", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await requestsCollection
+        .find()
+        .sort({ requestTime: -1 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.patch("/requests/:id/approve", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const request = await requestsCollection.findOne({ _id: new ObjectId(id) });
+
+      if (!request) {
+        return res.status(404).send({ message: "Request not found" });
+      }
+
+      if (request.requestStatus !== "pending") {
+        return res.status(400).send({ message: "Request is already handled" });
+      }
+
+      const updateUser = {
+        role: request.requestType,
+      };
+
+      if (request.requestType === "chef") {
+        updateUser.chefId = `chef-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
+
+      const userResult = await usersCollection.updateOne(
+        { email: request.userEmail },
+        { $set: updateUser },
+      );
+
+      const requestResult = await requestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { requestStatus: "approved" } },
+      );
+
+      res.send({ userResult, requestResult });
+    });
+
+    app.patch("/requests/:id/reject", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+
+      const result = await requestsCollection.updateOne(
+        { _id: new ObjectId(id), requestStatus: "pending" },
+        { $set: { requestStatus: "rejected" } },
+      );
+
+      res.send(result);
+    });
+
 
     app.put("/users/:email", async (req, res) => {
       const email = req.params.email;
@@ -162,6 +245,7 @@ async function run() {
     });
 
     console.log("LocalChefBazaar database connected");
+    
   } finally {
   }
 }
