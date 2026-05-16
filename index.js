@@ -44,3 +44,63 @@ function verifyToken(req, res, next) {
     next();
   });
 }
+
+async function run() {
+  try {
+    const database = client.db("localChefBazaarDB");
+
+    const usersCollection = database.collection("users");
+    const mealsCollection = database.collection("meals");
+    const reviewsCollection = database.collection("reviews");
+    const favoritesCollection = database.collection("favorites");
+    const ordersCollection = database.collection("orders");
+    const requestsCollection = database.collection("requests");
+    const paymentsCollection = database.collection("payments");
+
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+
+      const token = jwt.sign(user, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    app.post("/logout", async (req, res) => {
+      res
+        .clearCookie("token", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    app.get("/", (req, res) => {
+      res.send("LocalChefBazaar server is running");
+    });
+
+    app.get("/health", async (req, res) => {
+      res.send({
+        status: "ok",
+        message: "Server and database are ready",
+      });
+    });
+
+    console.log("LocalChefBazaar database connected");
+  } finally {
+  }
+}
+
+run().catch(console.dir);
+
+app.listen(port, () => {
+  console.log(`LocalChefBazaar server is running on port ${port}`);
+});
