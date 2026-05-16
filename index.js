@@ -585,6 +585,44 @@ async function run() {
 
       res.send(result);
     });
+    // add favorite
+    app.post("/favorites", verifyToken, async (req, res) => {
+      const favorite = req.body;
+
+      if (req.user.email !== favorite.userEmail) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const meal = await mealsCollection.findOne({
+        _id: new ObjectId(favorite.mealId),
+      });
+
+      if (!meal) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      const existingFavorite = await favoritesCollection.findOne({
+        userEmail: favorite.userEmail,
+        mealId: favorite.mealId,
+      });
+
+      if (existingFavorite) {
+        return res.status(409).send({ message: "Meal already in favorites" });
+      }
+
+      const newFavorite = {
+        userEmail: favorite.userEmail,
+        mealId: favorite.mealId,
+        mealName: meal.foodName,
+        chefId: meal.chefId,
+        chefName: meal.chefName,
+        price: meal.price,
+        addedTime: new Date().toISOString(),
+      };
+
+      const result = await favoritesCollection.insertOne(newFavorite);
+      res.send(result);
+    });
   } finally {
   }
 }
