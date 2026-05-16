@@ -849,6 +849,21 @@ async function run() {
         orderResult,
       });
     });
+    // get my payment history
+    app.get("/payments/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await paymentsCollection
+        .find({ userEmail: email })
+        .sort({ paymentTime: -1 })
+        .toArray();
+
+      res.send(result);
+    });
   } finally {
   }
 }
