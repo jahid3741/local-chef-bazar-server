@@ -477,6 +477,36 @@ async function run() {
         message: "Server and database are ready",
       });
     });
+    // add review
+    app.post("/reviews", verifyToken, async (req, res) => {
+      const review = req.body;
+
+      if (req.user.email !== review.reviewerEmail) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const meal = await mealsCollection.findOne({
+        _id: new ObjectId(review.foodId),
+      });
+
+      if (!meal) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      const newReview = {
+        foodId: review.foodId,
+        mealName: meal.foodName,
+        reviewerName: review.reviewerName,
+        reviewerEmail: review.reviewerEmail,
+        reviewerImage: review.reviewerImage,
+        rating: Number(review.rating),
+        comment: review.comment,
+        date: new Date().toISOString(),
+      };
+
+      const result = await reviewsCollection.insertOne(newReview);
+      res.send(result);
+    });
   } finally {
   }
 }
