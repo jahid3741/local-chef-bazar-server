@@ -731,6 +731,26 @@ async function run() {
 
       res.send(result);
     });
+    // get chef order requests
+    app.get(
+      "/orders/chef/:chefId",
+      verifyToken,
+      verifyChef,
+      async (req, res) => {
+        const chefId = req.params.chefId;
+
+        if (req.dbUser.chefId !== chefId) {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+
+        const result = await ordersCollection
+          .find({ chefId })
+          .sort({ orderTime: -1 })
+          .toArray();
+
+        res.send(result);
+      },
+    );
   } finally {
   }
 }
