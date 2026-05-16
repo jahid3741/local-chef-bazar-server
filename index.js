@@ -864,6 +864,32 @@ async function run() {
 
       res.send(result);
     });
+    // platform statistics
+    app.get("/admin/statistics", verifyToken, verifyAdmin, async (req, res) => {
+      const totalUsers = await usersCollection.countDocuments();
+
+      const ordersPending = await ordersCollection.countDocuments({
+        orderStatus: "pending",
+      });
+
+      const ordersDelivered = await ordersCollection.countDocuments({
+        orderStatus: "delivered",
+      });
+
+      const payments = await paymentsCollection.toArray();
+
+      const totalPaymentAmount = payments.reduce(
+        (total, payment) => total + Number(payment.amount || 0),
+        0,
+      );
+
+      res.send({
+        totalPaymentAmount,
+        totalUsers,
+        ordersPending,
+        ordersDelivered,
+      });
+    });
   } finally {
   }
 }
