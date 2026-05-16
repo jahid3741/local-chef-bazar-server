@@ -623,6 +623,20 @@ async function run() {
       const result = await favoritesCollection.insertOne(newFavorite);
       res.send(result);
     });
+    app.get("/favorites/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await favoritesCollection
+        .find({ userEmail: email })
+        .sort({ addedTime: -1 })
+        .toArray();
+
+      res.send(result);
+    });
   } finally {
   }
 }
