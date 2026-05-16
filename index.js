@@ -795,11 +795,9 @@ async function run() {
           (status === "accepted" || status === "cancelled") &&
           order.orderStatus !== "pending"
         ) {
-          return res
-            .status(400)
-            .send({
-              message: "Only pending orders can be accepted or cancelled",
-            });
+          return res.status(400).send({
+            message: "Only pending orders can be accepted or cancelled",
+          });
         }
 
         const result = await ordersCollection.updateOne(
@@ -810,6 +808,47 @@ async function run() {
         res.send(result);
       },
     );
+    // save payment
+    app.post("/payments", verifyToken, async (req, res) => {
+      const payment = req.body;
+
+      if (req.user.email !== payment.userEmail) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const order = await ordersCollection.findOne({
+        _id: new ObjectId(payment.orderId),
+      });
+
+      if (!order) {
+        return res.status(404).send({ message: "Order not found" });
+      }
+
+      if (order.userEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const newPayment = {
+        orderId: payment.orderId,
+        userEmail: payment.userEmail,
+        amount: Number(payment.amount),
+        transactionId: payment.transactionId,
+        paymentMethod: payment.paymentMethod || "stripe",
+        paymentTime: new Date().toISOString(),
+      };
+
+      const paymentResult = await paymentsCollection.insertOne(newPayment);
+
+      const orderResult = await ordersCollection.updateOne(
+        { _id: new ObjectId(payment.orderId) },
+        { $set: { paymentStatus: "paid" } },
+      );
+
+      res.send({
+        paymentResult,
+        orderResult,
+      });
+    });
   } finally {
   }
 }
