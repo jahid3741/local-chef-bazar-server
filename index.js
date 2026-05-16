@@ -18,7 +18,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.mongodb.net/?retryWrites=true&w=majority`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.enrgmwd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -27,7 +27,7 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
-// Verify JWT token middleware
+
 function verifyToken(req, res, next) {
   const token = req.cookies?.token;
 
@@ -45,6 +45,17 @@ function verifyToken(req, res, next) {
   });
 }
 
+async function verifyAdmin(req, res, next) {
+  const email = req.user.email;
+  const user = await req.app.locals.usersCollection.findOne({ email });
+
+  if (user?.role !== "admin") {
+    return res.status(403).send({ message: "Admin access only" });
+  }
+
+  next();
+}
+
 async function run() {
   try {
     const database = client.db("localChefBazaarDB");
@@ -56,6 +67,8 @@ async function run() {
     const ordersCollection = database.collection("orders");
     const requestsCollection = database.collection("requests");
     const paymentsCollection = database.collection("payments");
+
+    app.locals.usersCollection = usersCollection;
 
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -81,6 +94,60 @@ async function run() {
           sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
         })
         .send({ success: true });
+    });
+
+    app.put("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+
+      const filter = { email };
+      const options = { upsert: true };
+
+      const updatedUser = {
+        $setOnInsert: {
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          address: user.address,
+          role: "user",
+          status: "active",
+          createdAt: new Date().toISOString(),
+        },
+      };
+
+      const result = await usersCollection.updateOne(
+        filter,
+        updatedUser,
+        options,
+      );
+      res.send(result);
+    });
+
+    app.get("/users/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const user = await usersCollection.findOne({ email });
+      res.send(user);
+    });
+
+    app.get("/users/role/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const user = await usersCollection.findOne({ email });
+
+      res.send({
+        role: user?.role || "user",
+        status: user?.status || "active",
+        chefId: user?.chefId || null,
+      });
     });
 
     app.get("/", (req, res) => {
