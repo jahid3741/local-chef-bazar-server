@@ -82,6 +82,23 @@ async function verifyAdmin(req, res, next) {
 
   next();
 }
+async function verifyActiveUser(req, res, next) {
+  const email = req.user.email;
+  const user = await req.app.locals.usersCollection.findOne({ email });
+
+  if (!user) {
+    return res.status(404).send({ message: "User not found" });
+  }
+
+  if (user.status === "fraud") {
+    return res
+      .status(403)
+      .send({ message: "Fraud user cannot perform this action" });
+  }
+
+  req.dbUser = user;
+  next();
+}
 
 async function run() {
   try {
@@ -657,6 +674,46 @@ async function run() {
         _id: new ObjectId(id),
       });
 
+      res.send(result);
+    });
+    // create order
+    app.post("/orders", verifyToken, verifyActiveUser, async (req, res) => {
+      const order = req.body;
+
+      if (req.user.email !== order.userEmail) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const meal = await mealsCollection.findOne({
+        _id: new ObjectId(order.foodId),
+      });
+
+      if (!meal) {
+        return res.status(404).send({ message: "Meal not found" });
+      }
+
+      const quantity = Number(order.quantity);
+
+      if (!quantity || quantity < 1) {
+        return res.status(400).send({ message: "Quantity must be at least 1" });
+      }
+
+      const newOrder = {
+        foodId: order.foodId,
+        mealName: meal.foodName,
+        price: meal.price,
+        quantity,
+        chefId: meal.chefId,
+        chefName: meal.chefName,
+        paymentStatus: "pending",
+        userEmail: order.userEmail,
+        userAddress: order.userAddress,
+        orderStatus: "pending",
+        orderTime: new Date().toISOString(),
+        estimatedDeliveryTime: meal.estimatedDeliveryTime,
+      };
+
+      const result = await ordersCollection.insertOne(newOrder);
       res.send(result);
     });
   } finally {
