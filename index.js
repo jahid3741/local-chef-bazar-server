@@ -563,6 +563,28 @@ async function run() {
 
       res.send(result);
     });
+    // delete review
+    app.delete("/reviews/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+
+      const review = await reviewsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!review) {
+        return res.status(404).send({ message: "Review not found" });
+      }
+
+      if (review.reviewerEmail !== req.user.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await reviewsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      res.send(result);
+    });
   } finally {
   }
 }
