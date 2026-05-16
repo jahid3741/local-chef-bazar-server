@@ -716,6 +716,21 @@ async function run() {
       const result = await ordersCollection.insertOne(newOrder);
       res.send(result);
     });
+    // get my orders
+    app.get("/orders/user/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.user.email !== email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      const result = await ordersCollection
+        .find({ userEmail: email })
+        .sort({ orderTime: -1 })
+        .toArray();
+
+      res.send(result);
+    });
   } finally {
   }
 }
