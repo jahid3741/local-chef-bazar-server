@@ -258,18 +258,25 @@ async function run() {
     );
 
     // create meal
+
     app.post("/meals", verifyToken, verifyChef, async (req, res) => {
       const meal = req.body;
 
       if (req.user.email !== meal.userEmail) {
-        return res.status(403).send({ message: "Forbidden access" });
+        return res.status(403).send({
+          message: "Forbidden access",
+        });
       }
 
       const newMeal = {
         foodName: meal.foodName,
+
         chefName: meal.chefName,
+
         foodImage: meal.foodImage,
+
         price: Number(meal.price),
+
         rating: Number(meal.rating) || 0,
 
         ingredients: Array.isArray(meal.ingredients)
@@ -279,10 +286,15 @@ async function run() {
             : [],
 
         deliveryArea: meal.deliveryArea,
+
         estimatedDeliveryTime: meal.estimatedDeliveryTime,
+
         chefExperience: meal.chefExperience,
+
         chefId: req.dbUser.chefId,
+
         userEmail: meal.userEmail,
+
         createdAt: new Date().toISOString(),
       };
 
@@ -324,7 +336,23 @@ async function run() {
         limit,
       });
     });
+    // get chef meals
+    app.get("/meals/chef/:email", verifyToken, verifyChef, async (req, res) => {
+      const email = req.params.email;
 
+      if (req.user.email !== email) {
+        return res.status(403).send({
+          message: "Forbidden access",
+        });
+      }
+
+      const result = await mealsCollection
+        .find({ userEmail: email })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(result);
+    });
     // get single meal
     app.get("/meals/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
