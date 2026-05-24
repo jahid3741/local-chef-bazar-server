@@ -5,7 +5,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -256,7 +256,77 @@ async function run() {
         res.send(result);
       },
     );
+    // make chef
+    app.patch(
+      "/users/:email/make-chef",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
 
+        const targetUser = await usersCollection.findOne({
+          email,
+        });
+
+        if (!targetUser) {
+          return res.status(404).send({
+            message: "User not found",
+          });
+        }
+
+        const chefId =
+          targetUser.chefId ||
+          `chef-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        const result = await usersCollection.updateOne(
+          { email },
+          {
+            $set: {
+              role: "chef",
+              chefId,
+            },
+          },
+        );
+
+        res.send(result);
+      },
+    );
+    // make admin
+    app.patch(
+      "/users/:email/make-admin",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+
+        const targetUser = await usersCollection.findOne({
+          email,
+        });
+
+        if (!targetUser) {
+          return res.status(404).send({
+            message: "User not found",
+          });
+        }
+
+        if (targetUser.role === "admin") {
+          return res.status(400).send({
+            message: "User already admin",
+          });
+        }
+
+        const result = await usersCollection.updateOne(
+          { email },
+          {
+            $set: {
+              role: "admin",
+            },
+          },
+        );
+
+        res.send(result);
+      },
+    );
     // create meal
 
     app.post("/meals", verifyToken, verifyChef, async (req, res) => {
@@ -307,7 +377,14 @@ async function run() {
     app.get("/meals", async (req, res) => {
       const sort = req.query.sort;
       const page = Number(req.query.page) || 1;
-      const limit = Number(req.query.limit) || 10;
+
+      const limit = Number(req.query.limit) || 0;
+
+      let query = mealsCollection.find();
+
+      if (limit > 0) {
+        query = query.limit(limit);
+      }
       const skip = (page - 1) * limit;
 
       let sortOption = {};
@@ -319,7 +396,7 @@ async function run() {
       if (sort === "desc") {
         sortOption = { price: -1 };
       }
-
+      const result = await query.toArray();
       const meals = await mealsCollection
         .find()
         .sort(sortOption)
@@ -507,23 +584,43 @@ async function run() {
           });
         }
 
-        const updateUser = {
-          role: request.requestType,
-        };
+        // existing user
+        const existingUser = await usersCollection.findOne({
+          email: request.userEmail,
+        });
 
+        const updateUser = {};
+
+        // chef request
         if (request.requestType === "chef") {
-          updateUser.chefId = `chef-${Math.floor(1000 + Math.random() * 9000)}`;
+          updateUser.role = "chef";
+
+          // create only once
+          updateUser.chefId =
+            existingUser?.chefId ||
+            `chef-${Math.floor(1000 + Math.random() * 9000)}`;
         }
 
+        // admin request
+        if (request.requestType === "admin") {
+          updateUser.role = "admin";
+        }
+
+        // update user
         const userResult = await usersCollection.updateOne(
-          { email: request.userEmail },
+          {
+            email: request.userEmail,
+          },
           {
             $set: updateUser,
           },
         );
 
+        // update request
         const requestResult = await requestsCollection.updateOne(
-          { _id: new ObjectId(id) },
+          {
+            _id: new ObjectId(id),
+          },
           {
             $set: {
               requestStatus: "approved",
@@ -537,7 +634,6 @@ async function run() {
         });
       },
     );
-
     // reject request
     app.patch(
       "/requests/:id/reject",
@@ -820,6 +916,10 @@ async function run() {
       async (req, res) => {
         const chefId = req.params.chefId;
 
+        if (!chefId || chefId.trim() === "") {
+          return res.status(400).send({ message: "Invalid chefId" });
+        }
+
         if (req.dbUser.chefId !== chefId) {
           return res.status(403).send({ message: "Forbidden access" });
         }
@@ -839,39 +939,59 @@ async function run() {
       verifyChef,
       async (req, res) => {
         const id = req.params.id;
+
         const { status } = req.body;
+
+        // check valid id
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({
+            message: "Invalid order id",
+          });
+        }
 
         const allowedStatuses = ["cancelled", "accepted", "delivered"];
 
         if (!allowedStatuses.includes(status)) {
-          return res.status(400).send({ message: "Invalid status" });
+          return res.status(400).send({
+            message: "Invalid status",
+          });
         }
 
         const order = await ordersCollection.findOne({
-          _id: new ObjectId(id),
+          _id: ObjectId.createFromHexString(id),
         });
 
         if (!order) {
-          return res.status(404).send({ message: "Order not found" });
+          return res.status(404).send({
+            message: "Order not found",
+          });
         }
 
+        // chef ownership check
         if (order.chefId !== req.dbUser.chefId) {
-          return res.status(403).send({ message: "Forbidden access" });
+          return res.status(403).send({
+            message: "Forbidden access",
+          });
         }
 
+        // already closed
         if (
           order.orderStatus === "cancelled" ||
           order.orderStatus === "delivered"
         ) {
-          return res.status(400).send({ message: "Order is already closed" });
+          return res.status(400).send({
+            message: "Order already closed",
+          });
         }
 
+        // delivered only after accepted
         if (status === "delivered" && order.orderStatus !== "accepted") {
-          return res
-            .status(400)
-            .send({ message: "Only accepted orders can be delivered" });
+          return res.status(400).send({
+            message: "Only accepted orders can be delivered",
+          });
         }
 
+        // accept/cancel only from pending
         if (
           (status === "accepted" || status === "cancelled") &&
           order.orderStatus !== "pending"
@@ -882,47 +1002,103 @@ async function run() {
         }
 
         const result = await ordersCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { orderStatus: status } },
+          {
+            _id: ObjectId.createFromHexString(id),
+          },
+          {
+            $set: {
+              orderStatus: status,
+            },
+          },
         );
 
         res.send(result);
       },
     );
+    // get single order
+    app.get("/orders/single/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+
+      const result = await ordersCollection.findOne({
+        _id: ObjectId.createFromHexString(id),
+      });
+
+      if (!result) {
+        return res.status(404).send({
+          message: "Order not found",
+        });
+      }
+
+      res.send(result);
+    });
     // save payment
     app.post("/payments", verifyToken, async (req, res) => {
       const payment = req.body;
 
+      // security check
       if (req.user.email !== payment.userEmail) {
-        return res.status(403).send({ message: "Forbidden access" });
+        return res.status(403).send({
+          message: "Forbidden access",
+        });
       }
 
+      // find order
       const order = await ordersCollection.findOne({
-        _id: new ObjectId(payment.orderId),
+        _id: ObjectId.createFromHexString(payment.orderId),
       });
 
       if (!order) {
-        return res.status(404).send({ message: "Order not found" });
+        return res.status(404).send({
+          message: "Order not found",
+        });
       }
 
+      // ownership check
       if (order.userEmail !== req.user.email) {
-        return res.status(403).send({ message: "Forbidden access" });
+        return res.status(403).send({
+          message: "Forbidden access",
+        });
       }
 
+      // prevent duplicate payment
+      if (order.paymentStatus === "paid") {
+        return res.status(400).send({
+          message: "Order already paid",
+        });
+      }
+
+      // payment document
       const newPayment = {
         orderId: payment.orderId,
+
         userEmail: payment.userEmail,
+
+        mealName: order.mealName,
+
         amount: Number(payment.amount),
+
         transactionId: payment.transactionId,
+
         paymentMethod: payment.paymentMethod || "stripe",
+
+        orderStatus: order.orderStatus,
+
         paymentTime: new Date().toISOString(),
       };
 
+      // save payment history
       const paymentResult = await paymentsCollection.insertOne(newPayment);
 
+      // update order
       const orderResult = await ordersCollection.updateOne(
-        { _id: new ObjectId(payment.orderId) },
-        { $set: { paymentStatus: "paid" } },
+        {
+          _id: ObjectId.createFromHexString(payment.orderId),
+        },
+        {
+          $set: {
+            paymentStatus: "paid",
+          },
+        },
       );
 
       res.send({
@@ -930,20 +1106,22 @@ async function run() {
         orderResult,
       });
     });
-    // get my payment history
-    app.get("/payments/:email", verifyToken, async (req, res) => {
-      const email = req.params.email;
+    // create payment intent
+    app.post("/create-payment-intent", verifyToken, async (req, res) => {
+      const { price } = req.body;
 
-      if (req.user.email !== email) {
-        return res.status(403).send({ message: "Forbidden access" });
-      }
+      const amount = parseInt(price * 100);
 
-      const result = await paymentsCollection
-        .find({ userEmail: email })
-        .sort({ paymentTime: -1 })
-        .toArray();
+      // create payment intent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
 
-      res.send(result);
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
     });
     // platform statistics
     app.get("/admin/statistics", verifyToken, verifyAdmin, async (req, res) => {
@@ -957,7 +1135,7 @@ async function run() {
         orderStatus: "delivered",
       });
 
-      const payments = await paymentsCollection.toArray();
+      const payments = await paymentsCollection.find().toArray();
 
       const totalPaymentAmount = payments.reduce(
         (total, payment) => total + Number(payment.amount || 0),
@@ -976,18 +1154,18 @@ async function run() {
       const result = await mealsCollection
         .find()
         .sort({ createdAt: -1 })
-        .limit(6)
+        // .limit(6)
         .toArray();
 
       res.send(result);
     });
 
     // home customer reviews
-    app.get("/home-reviews", async (req, res) => {
+    app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection
         .find()
         .sort({ date: -1 })
-        .limit(6)
+        // .limit(6)
         .toArray();
 
       res.send(result);
