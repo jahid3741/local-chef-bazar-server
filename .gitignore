@@ -1,2 +1,4 @@
 .env
 node_modules
+.vercel
+local-chef-bazar-21992-firebase-adminsdk-fbsvc-6110e34572.json
