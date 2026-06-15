@@ -38,6 +38,7 @@ const client = new MongoClient(uri, {
 
 // 2. Define collections globally
 const database = client.db("localChefBazaarDB");
+
 const usersCollection = database.collection("users");
 const mealsCollection = database.collection("meals");
 const reviewsCollection = database.collection("reviews");
@@ -45,7 +46,7 @@ const favoritesCollection = database.collection("favorites");
 const ordersCollection = database.collection("orders");
 const requestsCollection = database.collection("requests");
 const paymentsCollection = database.collection("payments");
-
+const newsletterCollection = database.collection("newsletterSubscribers");
 function isValidObjectId(id) {
   return ObjectId.isValid(id);
 }
@@ -313,27 +314,55 @@ app.post("/meals", verifyToken, verifyChef, async (req, res) => {
   }
 });
 
-// get all meals
 app.get("/meals", async (req, res) => {
-  const sort = req.query.sort;
-  const page = Number(req.query.page) || 1;
-  const limit = Number(req.query.limit) || 0;
+  try {
+    const sort = req.query.sort;
+    const search = req.query.search; // Capture search keyword
+    const category = req.query.category; // Capture category
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 0;
 
-  const skip = (page - 1) * limit;
-  let sortOption = {};
-  if (sort === "asc") sortOption = { price: 1 };
-  if (sort === "desc") sortOption = { price: -1 };
+    const skip = (page - 1) * limit;
 
-  let query = mealsCollection.find();
-  if (Object.keys(sortOption).length > 0) query = query.sort(sortOption);
-  if (limit > 0) query = query.skip(skip).limit(limit);
+    // 1. Build Dynamic Filter Query
+    let filterQuery = {};
 
-  const meals = await query.toArray();
-  const total = await mealsCollection.countDocuments();
+    // Search by foodName (case-insensitive)
+    if (search) {
+      filterQuery.foodName = { $regex: search, $options: "i" };
+    }
 
-  res.send({ meals, total, page, limit });
+    // Exact match for category
+    if (category) {
+      filterQuery.category = category;
+    }
+
+    // 2. Build Sorting Option
+    let sortOption = {};
+    if (sort === "asc") sortOption = { price: 1 };
+    if (sort === "desc") sortOption = { price: -1 };
+
+    // 3. Execute Query with filters
+    let query = mealsCollection.find(filterQuery);
+
+    if (Object.keys(sortOption).length > 0) {
+      query = query.sort(sortOption);
+    }
+    if (limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const meals = await query.toArray();
+
+    // IMPORTANT: Count documents matching the filters, NOT the whole database
+    const total = await mealsCollection.countDocuments(filterQuery);
+
+    res.send({ meals, total, page, limit });
+  } catch (error) {
+    console.error("Failed to fetch meals:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
 });
-
 // get chef meals
 app.get("/meals/chef/:email", verifyToken, verifyChef, async (req, res) => {
   const email = req.params.email;
@@ -861,7 +890,46 @@ app.get("/reviews", async (req, res) => {
 app.get("/", (req, res) => {
   res.send("LocalChefBazaar server is running");
 });
+// POST: Handle Newsletter Subscription
+app.post("/newsletter", async (req, res) => {
+  try {
+    const { email } = req.body;
 
+    // Validate input
+    if (!email || !email.includes("@")) {
+      return res
+        .status(400)
+        .send({ message: "Invalid email address provided." });
+    }
+
+    // Check if email already exists
+    const existingSubscriber = await newsletterCollection.findOne({ email });
+
+    if (existingSubscriber) {
+      return res.status(409).send({
+        message: "This email is already subscribed to our newsletter.",
+      });
+    }
+
+    // Insert new subscriber
+    const newSubscriber = {
+      email,
+      subscribedAt: new Date(),
+    };
+
+    const result = await newsletterCollection.insertOne(newSubscriber);
+
+    res.status(201).send({
+      message: "Subscription successful",
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error("Newsletter Subscription Error:", error);
+    res
+      .status(500)
+      .send({ message: "Internal server error. Please try again later." });
+  }
+});
 // 404 route - always last
 app.use((req, res) => {
   res.status(404).send({ message: "Route not found" });
