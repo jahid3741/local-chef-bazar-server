@@ -11,9 +11,9 @@ const port = process.env.PORT || 5000;
 
 const corsOptions = {
   origin: [
-    process.env.CLIENT_URL,
     "http://localhost:5173",
     "http://localhost:5174",
+    "https://local-chef-bazar-jahid.netlify.app",
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -275,30 +275,42 @@ app.patch(
     res.send(result);
   },
 );
-
 // create meal
 app.post("/meals", verifyToken, verifyChef, async (req, res) => {
-  const meal = req.body;
+  try {
+    const meal = req.body;
 
-  if (req.user.email !== meal.userEmail) {
-    return res.status(403).send({ message: "Forbidden access" });
+    const newMeal = {
+      foodName: meal.foodName,
+      chefName: meal.chefName,
+      foodImage: meal.foodImage,
+      price: Number(meal.price),
+      rating: 0,
+      ingredients: Array.isArray(meal.ingredients) ? meal.ingredients : [],
+      deliveryArea: meal.deliveryArea,
+      estimatedDeliveryTime: meal.estimatedDeliveryTime,
+      chefExperience: meal.chefExperience,
+
+      userEmail: req.user.email,
+      chefId: req.dbUser.chefId,
+
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await mealsCollection.insertOne(newMeal);
+
+    res.status(201).send({
+      insertedId: result.insertedId,
+      message: "Meal created successfully",
+    });
+  } catch (error) {
+    console.error("Create meal error:", error);
+
+    res.status(500).send({
+      message: "Failed to create meal",
+      error: error.message,
+    });
   }
-
-  const newMeal = {
-    ...meal,
-    price: Number(meal.price),
-    rating: Number(meal.rating) || 0,
-    ingredients: Array.isArray(meal.ingredients)
-      ? meal.ingredients
-      : typeof meal.ingredients === "string"
-        ? meal.ingredients.split(",").map((item) => item.trim())
-        : [],
-    chefId: req.dbUser.chefId,
-    createdAt: new Date().toISOString(),
-  };
-
-  const result = await mealsCollection.insertOne(newMeal);
-  res.send(result);
 });
 
 // get all meals
@@ -338,13 +350,16 @@ app.get("/meals/chef/:email", verifyToken, verifyChef, async (req, res) => {
 });
 
 // get single meal
-app.get("/meals/:id", verifyToken, async (req, res) => {
+app.get("/meals/:id", async (req, res) => {
   const id = req.params.id;
-  if (!isValidObjectId(id))
+  if (!isValidObjectId(id)) {
     return res.status(400).send({ message: "Invalid meal id" });
+  }
 
   const result = await mealsCollection.findOne({ _id: new ObjectId(id) });
-  if (!result) return res.status(404).send({ message: "Meal not found" });
+  if (!result) {
+    return res.status(404).send({ message: "Meal not found" });
+  }
 
   res.send(result);
 });
